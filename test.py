@@ -338,15 +338,19 @@ kernel.pid_max = 4194304
         """Обновление iptables лимитов в зависимости от режима"""
         if not self.iptables_initialized:
             return
-        
+
         limit = MODES[mode].iptables_new_limit
-        
-        # Удаляем старое правило SYN flood
-        self._run_command("iptables -D INPUT -p tcp --syn -m limit --limit-burst 100 -j ACCEPT", check=False)
-        
+
+        # Удаляем старые правила для всех режимов, чтобы не копились дубликаты
+        for value in {m.iptables_new_limit for m in MODES.values()}:
+            self._run_command(
+                f"iptables -D INPUT -p tcp --syn -m limit --limit {value} --limit-burst 100 -j ACCEPT",
+                check=False,
+            )
+
         # Добавляем новое с обновленным лимитом
         self._run_command(f"iptables -I INPUT -p tcp --syn -m limit --limit {limit} --limit-burst 100 -j ACCEPT", check=False)
-        
+
         print(f"{Colors.MAGENTA}  Iptables лимит: {limit}{Colors.NC}")
     
     def generate_ssl_cert(self):
