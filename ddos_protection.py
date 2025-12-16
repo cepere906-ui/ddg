@@ -53,6 +53,10 @@ class DDoSProtectionConfig:
     ip_blacklist_enabled: bool = True
     blacklisted_ips: List[str] = field(default_factory=list)
 
+    # IP Whitelist (доверенные IP, не ограничиваются)
+    ip_whitelist_enabled: bool = False
+    whitelisted_ips: List[str] = field(default_factory=list)
+
     # Geo-blocking (страны для блокировки, требует GeoIP модуль)
     geo_blocking_enabled: bool = False
     blocked_countries: List[str] = field(default_factory=list)
@@ -139,6 +143,18 @@ class NginxDDoSProtection:
 
         return blacklist
 
+    def generate_ip_whitelist_map(self) -> str:
+        """Генерация карты для whitelist IP"""
+        if not self.config.ip_whitelist_enabled or not self.config.whitelisted_ips:
+            return ""
+
+        whitelist = "\n    # IP Whitelist (доверенные IP)\n    map $remote_addr $whitelisted_ip {\n        default 0;\n"
+        for ip in self.config.whitelisted_ips:
+            whitelist += f"        {ip} 1;\n"
+        whitelist += "    }\n"
+
+        return whitelist
+
     def generate_geo_blocking_map(self) -> str:
         """Генерация карты для geo-blocking (требует GeoIP)"""
         if not self.config.geo_blocking_enabled or not self.config.blocked_countries:
@@ -164,6 +180,9 @@ class NginxDDoSProtection:
 
         # Request validation
         http_config.append(self.generate_request_validation_map())
+
+        # IP whitelist
+        http_config.append(self.generate_ip_whitelist_map())
 
         # IP blacklist
         http_config.append(self.generate_ip_blacklist_map())
@@ -199,7 +218,16 @@ class NginxDDoSProtection:
         """Генерация правил для location в server блоке"""
         rules = []
 
-        # Rate limiting
+        # IP Whitelist (доверенные IP пропускаются без проверок)
+        if self.config.ip_whitelist_enabled and self.config.whitelisted_ips:
+            rules.append("""
+            # IP Whitelist - доверенные IP пропускаются без ограничений
+            if ($whitelisted_ip) {
+                set $rate_limit_bypass 1;
+            }
+""")
+
+        # Rate limiting (пропускаем для whitelist)
         if self.config.rate_limit_enabled:
             rules.append(f"""
             # Rate limiting
@@ -278,6 +306,7 @@ ignoreregex =
             "Request Size Limit": self.config.client_body_size if self.config.request_size_limit_enabled else "Disabled",
             "Timeout Protection": "Enabled" if self.config.timeout_protection_enabled else "Disabled",
             "Request Validation": "Enabled" if self.config.request_validation_enabled else "Disabled",
+            "IP Whitelist": f"{len(self.config.whitelisted_ips)} trusted IPs" if self.config.ip_whitelist_enabled else "Disabled",
             "IP Blacklist": f"{len(self.config.blacklisted_ips)} IPs blocked" if self.config.ip_blacklist_enabled else "Disabled",
             "Geo-blocking": f"{len(self.config.blocked_countries)} countries blocked" if self.config.geo_blocking_enabled else "Disabled",
             "Fail2ban Integration": "Enabled" if self.config.fail2ban_integration else "Disabled",
@@ -300,16 +329,16 @@ class ProtectionProfiles:
 
     @staticmethod
     def strict() -> DDoSProtectionConfig:
-        """Строгая защита - максимальная безопасность"""
+        """Строгая защита - безопасность без убийства сервера"""
         return DDoSProtectionConfig(
-            rate_limit_requests=5,
-            rate_limit_burst=10,
-            conn_limit_connections=5,
-            client_body_size="5m",
-            client_body_timeout=5,
-            client_header_timeout=5,
-            send_timeout=5,
-            keepalive_timeout=10,
+            rate_limit_requests=15,
+            rate_limit_burst=30,
+            conn_limit_connections=15,
+            client_body_size="10m",
+            client_body_timeout=15,
+            client_header_timeout=15,
+            send_timeout=15,
+            keepalive_timeout=30,
         )
 
     @staticmethod

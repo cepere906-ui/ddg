@@ -44,6 +44,15 @@ SSL_DIR = f"{DOCKER_DIR}/ssl"
 # Профиль DDoS защиты: 'basic', 'strict', 'performance', 'paranoid'
 DDOS_PROFILE = 'strict'  # Измени на нужный профиль
 
+# IP Whitelist - доверенные IP (не ограничиваются rate limiting)
+# Добавь сюда свой IP, IP мониторинга, etc
+TRUSTED_IPS = [
+    # Примеры:
+    # "1.2.3.4",           # твой домашний IP
+    # "5.6.7.8",           # IP офиса
+    # "10.0.0.0/24",       # подсеть
+]
+
 # ============================================================================
 
 class Colors:
@@ -64,12 +73,14 @@ class DockerCDNWithDDoSProtection:
         domain: str,
         origin_ip: str,
         origin_port: int = 443,
-        ddos_profile: str = 'basic'
+        ddos_profile: str = 'basic',
+        trusted_ips: List[str] = None
     ):
         self.domain = domain
         self.origin_ip = origin_ip
         self.origin_port = origin_port
         self.origin_proto = "https" if origin_port == 443 else "http"
+        self.trusted_ips = trusted_ips or []
 
         # Пути
         self.docker_dir = DOCKER_DIR
@@ -108,7 +119,14 @@ class DockerCDNWithDDoSProtection:
             print(f"{Colors.YELLOW}⚠ Неизвестный профиль '{profile}', использую 'basic'{Colors.NC}")
             profile = 'basic'
 
-        return profiles[profile]()
+        config = profiles[profile]()
+
+        # Применяем trusted IPs если они есть
+        if self.trusted_ips:
+            config.ip_whitelist_enabled = True
+            config.whitelisted_ips = self.trusted_ips
+
+        return config
 
     def _signal_handler(self, signum, frame):
         print(f"\n{Colors.YELLOW}⚠ Завершение...{Colors.NC}")
@@ -218,7 +236,7 @@ error_log /var/log/nginx/error.log warn;
 pid /var/run/nginx.pid;
 
 events {{
-    worker_connections 2048;
+    worker_connections 4096;
     use epoll;
     multi_accept on;
 }}
@@ -362,6 +380,11 @@ http {{
       options:
         max-size: "10m"
         max-file: "3"
+    # Ограничения ресурсов (чтобы не убить сервер)
+    mem_limit: 256m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 200
 
 networks:
   cdn-network:
@@ -516,6 +539,7 @@ if __name__ == '__main__':
         TARGET_DOMAIN,
         ORIGIN_IP,
         ORIGIN_PORT,
-        ddos_profile=DDOS_PROFILE
+        ddos_profile=DDOS_PROFILE,
+        trusted_ips=TRUSTED_IPS
     )
     cdn.run()
