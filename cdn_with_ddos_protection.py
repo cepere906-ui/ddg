@@ -344,9 +344,7 @@ http {{
         """Создание docker-compose.yml"""
         self._print_step("Создание docker-compose.yml...")
 
-        compose_content = f"""version: '3.8'
-
-services:
+        compose_content = f"""services:
   nginx:
     image: nginx:alpine
     container_name: {self.container_name}
@@ -364,15 +362,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    # Ограничения ресурсов для дополнительной защиты
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 128M
 
 networks:
   cdn-network:
